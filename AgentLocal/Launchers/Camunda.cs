@@ -27,7 +27,6 @@ public class Camunda
     private readonly IServiceProvider _services;
     private readonly MailService _mailService;
     private readonly HttpClient _httpClient;
-    public Prototype prototypeToSave { get; set; }
 
 
 
@@ -63,7 +62,7 @@ public class Camunda
             Console.WriteLine(formData.StorageCapacity);
             Console.WriteLine(formData.RAMSize);
             Console.WriteLine(formData.ProductDescription);
-            var prompt = $@"Make a phone with the following description : {formData.ProductDescription}, with Storage: {formData.StorageCapacity}GB, RAM: {formData.RAMSize}GB";
+            var prompt = $@"I want a : {formData.ProductDescription}, with Storage: {formData.StorageCapacity}GB, RAM: {formData.RAMSize}GB";
 
             Console.WriteLine(prompt);
 
@@ -403,12 +402,10 @@ public class Camunda
             using (var scope = _services.CreateScope())
             {
                 var dbContext = scope.ServiceProvider.GetRequiredService<PrototypeDbContext>();
-
                 Console.WriteLine("Starting SavePrototype job");
 
                 var variables = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(job.Variables);
 
-                // Récupérer les données du prototype
                 if (!variables.ContainsKey("prototypeData"))
                 {
                     throw new Exception("Prototype data not found in job variables");
@@ -428,12 +425,47 @@ public class Camunda
                 {
                     var prototype = JsonSerializer.Deserialize<Prototype>(prototypeJson);
 
+                    // Créer le nom du fichier avec la date et le nom du modèle
+                    string fileName = $"prototype_{prototype.ModelName}_{DateTime.Now:yyyyMMdd_HHmmss}.jpg";
+
+                    // Obtenir le chemin du dossier Documents
+                    string documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+
+                    // Créer un sous-dossier "Prototypes" s'il n'existe pas
+                    string prototypesFolder = Path.Combine(documentsPath, "Prototypes");
+                    if (!Directory.Exists(prototypesFolder))
+                    {
+                        Directory.CreateDirectory(prototypesFolder);
+                    }
+
+                    // Chemin complet du fichier
+                    string filePath = Path.Combine(prototypesFolder, fileName);
+
+                    // Sauvegarder l'image en tant que fichier
+                    if (prototype.ImageData != null)
+                    {
+                        try
+                        {
+                            await File.WriteAllBytesAsync(filePath, prototype.ImageData);
+                            Console.WriteLine($"Image saved to: {filePath}");
+
+                            // Optionnel : Vérifier que l'image est valide
+                            using (var image = Image.Load(filePath))
+                            {
+                                Console.WriteLine($"Image verified - Size: {image.Width}x{image.Height}");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"Warning: Failed to save image file: {ex.Message}");
+                            // Vous pouvez choisir de throw l'exception ici si vous voulez que ça soit bloquant
+                        }
+                    }
+
                     // Sauvegarder dans la base de données
                     dbContext.Prototypes.Add(prototype);
                     await dbContext.SaveChangesAsync();
-                    Console.WriteLine("Prototype saved");
-
-                    
+                    Console.WriteLine("Prototype saved in database");
 
                     // Publier le message de confirmation
                     await _zeebeClient!.NewPublishMessageCommand()
@@ -443,16 +475,17 @@ public class Camunda
                         {
                             modelName = prototype.ModelName,
                             prototypeSaved = true,
-                            saveDate = DateTime.Now
+                            saveDate = DateTime.Now,
+                            imagePath = filePath // Optionnel : inclure le chemin du fichier dans la réponse
                         }))
                         .Send();
 
-                    // Compléter le job
                     await client.NewCompleteJobCommand(job.Key)
                         .Variables(JsonSerializer.Serialize(new
                         {
                             prototypeSaved = true,
-                            saveDate = DateTime.Now
+                            saveDate = DateTime.Now,
+                            imagePath = filePath // Optionnel : inclure le chemin du fichier dans la réponse
                         }))
                         .Send();
                 }
