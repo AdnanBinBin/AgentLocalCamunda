@@ -63,10 +63,7 @@ public class Camunda
             Console.WriteLine(formData.StorageCapacity);
             Console.WriteLine(formData.RAMSize);
             Console.WriteLine(formData.ProductDescription);
-            var prompt = $@"{formData.ProductDescription} with :
-            Storage: {formData.StorageCapacity}GB
-            RAM: {formData.RAMSize}GB
-             ";
+            var prompt = $@"Make a phone with the following description : {formData.ProductDescription}, with Storage: {formData.StorageCapacity}GB, RAM: {formData.RAMSize}GB";
 
             Console.WriteLine(prompt);
 
@@ -152,6 +149,18 @@ public class Camunda
             };
 
             var emailRecipient = formData.EmailRecipient;
+
+
+            if (!IsValidEmail(formData.EmailRecipient))
+            {
+                Console.WriteLine($"Invalid email address: {formData.EmailRecipient}");
+                await client.NewThrowErrorCommand(job.Key)
+                    .ErrorCode("InvalidEmail")
+                    .ErrorMessage("The provided email address is invalid")
+                    .Send();
+                return;
+            }
+
 
             var emailBody = $@"
             <h2>Smartphone Realization Conception Plan</h2>
